@@ -35,10 +35,6 @@ ecg/
 │   ├── training_pipeline.py    # Training and evaluation pipeline
 │   ├── signal_processing.py    # S-Transform and feature extraction
 │   └── ...
-├── frontend/                   # React web application
-│   ├── src/
-│   ├── package.json
-│   └── README.md
 ├── models/                     # Trained model storage
 │   ├── best_model_fold_X.pth  # PyTorch model checkpoints
 │   ├── best_ecg_model_fold_X.onnx         # Standard ONNX models
