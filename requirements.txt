@@ -1,0 +1,17 @@
+torch
+torchvision
+torchaudio
+numpy
+pandas
+scipy
+scikit-learn
+imblearn
+wfdb
+torch_optimizer
+pytest
+matplotlib
+seaborn
+tqdm
+optuna
+onnx>=1.12.0
+onnxruntime>=1.12.0
