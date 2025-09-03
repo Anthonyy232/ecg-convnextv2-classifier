@@ -36,6 +36,28 @@ from data_loader import load_rare_aware_cached, load_rare_disease_split
 from preprocess import create_segmented_windows
 
 
+def load_best_hpo_params():
+    """
+    Loads the best hyperparameters from the most recent HPO study.
+    
+    Returns:
+        dict or None: Best hyperparameters if found, None otherwise.
+    """
+    try:
+        import optuna
+        storage_name = f"sqlite:///{os.path.join(RESULTS_DIRECTORY, 'ecg_hpo_study.db')}"
+        study = optuna.load_study(study_name='ecg_hpo_study', storage=storage_name)
+        
+        if len(study.trials) > 0:
+            best_params = study.best_params.copy()
+            best_value = study.best_value
+            return best_params, best_value
+    except Exception as e:
+        print(f"Could not load HPO results: {e}")
+    
+    return None, None
+
+
 def set_seed(seed: int):
     """Sets random seeds for reproducibility."""
     random.seed(seed)
@@ -127,6 +149,12 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device):
         with autocast(device_type='cuda' if device.type == 'cuda' else 'cpu'):
             outputs = model(data)
             loss = criterion(outputs, targets)
+        
+        # Check for NaN loss early
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"Warning: NaN or Inf loss detected: {loss.item()}")
+            return float('nan')
+            
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), GRADIENT_CLIP_NORM)
@@ -197,7 +225,7 @@ def export_to_quantized_onnx(model, sample_input, output_path, model_name="ecg_m
         # Verify the ONNX model
         onnx_model = onnx.load(onnx_path)
         onnx.checker.check_model(onnx_model)
-        print("✓ ONNX model exported and verified successfully")
+        print("ONNX model exported and verified successfully")
         
         # Quantize the ONNX model
         quantized_onnx_path = os.path.join(output_path, f"{model_name}_quantized.onnx")
@@ -208,11 +236,11 @@ def export_to_quantized_onnx(model, sample_input, output_path, model_name="ecg_m
             quantized_onnx_path,
             weight_type=QuantType.QUInt8
         )
-        print("✓ ONNX model quantized successfully")
+        print("ONNX model quantized successfully")
         
         # Verify the quantized model can be loaded
         ort_session = ort.InferenceSession(quantized_onnx_path)
-        print("✓ Quantized ONNX model verified with ONNX Runtime")
+        print("Quantized ONNX model verified with ONNX Runtime")
         
         # Compare file sizes
         original_size = os.path.getsize(onnx_path) / (1024 * 1024)  # MB
@@ -265,15 +293,18 @@ def validate_onnx_model(model, onnx_path, sample_input, tolerance=1e-5):
         print(f"ONNX validation - Max difference: {max_diff:.6f}, Mean difference: {mean_diff:.6f}")
         
         if max_diff < tolerance:
-            print("✓ ONNX model validation passed")
+            print("NNX model validation passed")
             return True
         else:
-            print(f"✗ ONNX model validation failed (tolerance: {tolerance})")
+            print(f"ONNX model validation failed (tolerance: {tolerance})")
             return False
             
     except Exception as e:
         print(f"Error during ONNX validation: {str(e)}")
         return False
+
+
+def train_model(hyperparams=None, return_f1=False, trial_num=None):
     """
     Main training function that orchestrates the entire training process.
 
@@ -283,147 +314,153 @@ def validate_onnx_model(model, onnx_path, sample_input, tolerance=1e-5):
         trial_num (int, optional): The HPO trial number, for logging purposes.
     """
     set_seed(RANDOM_SEED)
+    
+    # Load HPO results if available and no hyperparams provided
+    if not hyperparams and not return_f1:  # Only for full training runs, not HPO trials
+        print("\n" + "="*50)
+        print("CHECKING FOR HPO RESULTS")
+        print("="*50)
+        
+        best_hpo_params, best_hpo_score = load_best_hpo_params()
+        
+        if best_hpo_params:
+            print(f"Found HPO results! Best F1 score: {best_hpo_score:.4f}")
+            print("Best hyperparameters found:")
+            for key, value in best_hpo_params.items():
+                print(f"  {key}: {value}")
+            
+            response = input("\nUse these optimized hyperparameters? [Y/n]: ").strip().lower()
+            if response in ['', 'y', 'yes']:
+                hyperparams = best_hpo_params
+                print("Using optimized hyperparameters from HPO")
+            else:
+                print("Using default hyperparameters")
+        else:
+            print("No HPO results found. Using default hyperparameters.")
+            print("Tip: Run 'python ecg_cli.py hpo' to optimize hyperparameters first.")
+        
+        print("="*50)
+    
     hp = hyperparams or {}
     lr = hp.get('learning_rate', LEARNING_RATE)
     bs = hp.get('batch_size', BATCH_SIZE)
     gamma = hp.get('focal_gamma', FOCAL_LOSS_GAMMA)
-    epochs = hp.get('epochs', HPO_MAX_EPOCHS if hp else MAX_EPOCHS)
+    epochs = hp.get('epochs', HPO_MAX_EPOCHS if return_f1 else MAX_EPOCHS)
+    
+    # Display the hyperparameters being used
+    if not return_f1:  # Only for full training runs
+        print("\n" + "="*50)
+        print("TRAINING CONFIGURATION")
+        print("="*50)
+        print(f"Learning Rate: {lr}")
+        print(f"Batch Size: {bs}")
+        print(f"Focal Loss Gamma: {gamma}")
+        print(f"Max Epochs: {epochs}")
+        print(f"Device: {DEVICE}")
+        print("="*50)
     
     log_prefix = f"[Trial {trial_num}] " if trial_num is not None else ""
-    
     device = torch.device(DEVICE)
     patient_data = load_data(DATA_DIRECTORY, use_cv=True)
     patients = list(patient_data.keys())
     kf = KFold(n_splits=CROSS_VALIDATION_FOLDS, shuffle=True, random_state=RANDOM_SEED)
-    
     fold_scores = []
     for fold, (train_idx, val_idx) in enumerate(kf.split(patients)):
         print(f"\n{log_prefix}--- Starting Fold {fold + 1}/{CROSS_VALIDATION_FOLDS} ---")
         train_p = [patients[i] for i in train_idx]
         val_p = [patients[i] for i in val_idx]
-        
         X_train = np.concatenate([patient_data[p][0] for p in train_p])
         y_train = np.concatenate([patient_data[p][1] for p in train_p])
         X_val = np.concatenate([patient_data[p][0] for p in val_p])
         y_val = np.concatenate([patient_data[p][1] for p in val_p])
-        
         X_train_bal, y_train_bal = apply_smote(X_train, y_train)
-        
-        # Compute class weights for all possible classes (0 to NUM_CLASSES-1)
-        # to avoid index out of bounds errors when some classes are missing in a fold
         all_classes = np.arange(NUM_CLASSES)
         unique_classes_in_fold = np.unique(y_train_bal)
-        
         fold_weights = compute_class_weight('balanced', classes=unique_classes_in_fold, y=y_train_bal)
-        
-        # Create a weight tensor for all classes, setting missing classes to 1.0 (neutral weight)
         weights = np.ones(NUM_CLASSES, dtype=np.float32)
         for i, class_idx in enumerate(unique_classes_in_fold):
             weights[class_idx] = fold_weights[i]
-        
         weights_tensor = torch.tensor(weights, dtype=torch.float).to(device)
-        
-        # Debug information for class distribution in this fold
         print(f"{log_prefix}Classes in fold {fold + 1}: {unique_classes_in_fold}")
         print(f"{log_prefix}Class weights: {weights}")
-        
-        # Validate that all labels in the fold are within valid range
         assert y_train_bal.min() >= 0 and y_train_bal.max() < NUM_CLASSES, \
             f"Invalid labels in training data: min={y_train_bal.min()}, max={y_train_bal.max()}, expected range=[0, {NUM_CLASSES-1}]"
         assert y_val.min() >= 0 and y_val.max() < NUM_CLASSES, \
             f"Invalid labels in validation data: min={y_val.min()}, max={y_val.max()}, expected range=[0, {NUM_CLASSES-1}]"
-        
         train_ds = ECGDataset(X_train_bal, y_train_bal)
         val_ds = ECGDataset(X_val, y_val)
         train_loader = DataLoader(train_ds, batch_size=bs, shuffle=True, num_workers=4, pin_memory=True, persistent_workers=True)
         val_loader = DataLoader(val_ds, batch_size=bs, shuffle=False, num_workers=4, pin_memory=True, persistent_workers=True)
-        
         model = create_ecg_model(NUM_CLASSES).to(device)
         criterion = FocalLoss(alpha=weights_tensor, gamma=gamma)
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=8)
         scaler = GradScaler()
-        
         best_f1 = 0.0
         patience = 0
         for epoch in range(epochs):
             train_loss = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device)
+            
+            # Check for NaN training loss and abort this fold early
+            if np.isnan(train_loss):
+                print(f"{log_prefix}NaN loss detected in fold {fold + 1}, epoch {epoch + 1}. Aborting this fold.")
+                best_f1 = 0.0  # Set to 0 for failed folds
+                break
+                
             val_f1 = evaluate(model, val_loader, criterion, device)
             scheduler.step(val_f1)
-            
             print(f"{log_prefix}Fold {fold + 1}, Epoch {epoch + 1}/{epochs} | Train Loss: {train_loss:.4f} | Val F1: {val_f1:.4f}")
-
             if val_f1 > best_f1:
                 best_f1 = val_f1
                 patience = 0
                 if not hp: # Only save the best model during a full training run
                     os.makedirs(MODELS_DIRECTORY, exist_ok=True)
-                    # Save the best model for this specific fold
-                    fold_model_path = os.path.join(MODELS_DIRECTORY, f'best_model_fold_{fold+1}.pth')
-                    torch.save({'model_state_dict': model.state_dict(), 'val_f1': best_f1}, fold_model_path)
-                    print(f"{log_prefix}  -> New best F1 on fold {fold+1}: {best_f1:.4f}. Model saved to {fold_model_path}")
+                    torch.save({
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'epoch': epoch,
+                        'f1': val_f1
+                    }, os.path.join(MODELS_DIRECTORY, f'best_model_fold_{fold+1}.pth'))
             else:
                 patience += 1
-            
-            if patience >= EARLY_STOPPING_PATIENCE:
-                print(f"{log_prefix}Early stopping triggered at epoch {epoch + 1}.")
+            if patience > EARLY_STOPPING_PATIENCE:
+                print(f"{log_prefix}Early stopping at epoch {epoch + 1}")
                 break
-        
-        print(f"{log_prefix}Fold {fold + 1} finished. Best F1 score: {best_f1:.4f}")
         fold_scores.append(best_f1)
-
     mean_f1 = np.mean(fold_scores)
     std_f1 = np.std(fold_scores)
-
-    if return_f1:
-        return mean_f1
-    
     print("\n" + "="*50)
     print("Cross-Validation Complete")
     print(f"F1 Scores per fold: {[f'{s:.4f}' for s in fold_scores]}")
     print(f"Mean F1 Score: {mean_f1:.4f} ± {std_f1:.4f}")
     print("="*50)
-    
     # Export the best model to quantized ONNX format
     if not hp:  # Only during full training runs (not HPO)
         print("\n" + "="*50)
         print("Exporting to Quantized ONNX")
         print("="*50)
-        
-        # Find the best fold model
         best_fold_idx = np.argmax(fold_scores)
         best_fold_model_path = os.path.join(MODELS_DIRECTORY, f'best_model_fold_{best_fold_idx+1}.pth')
-        
         if os.path.exists(best_fold_model_path):
-            # Load the best model
             best_model = create_ecg_model(NUM_CLASSES).to(device)
             checkpoint = torch.load(best_fold_model_path, map_location=device)
             best_model.load_state_dict(checkpoint['model_state_dict'])
             best_model.eval()
-            
-            # Create a sample input for ONNX export
             sample_input = torch.randn(1, 2, S_TRANSFORM_HEIGHT, WINDOW_SIZE_SAMPLES).to(device)
-            
-            # Export to ONNX
             onnx_path, quantized_onnx_path = export_to_quantized_onnx(
                 best_model, 
                 sample_input, 
                 MODELS_DIRECTORY, 
                 f"best_ecg_model_fold_{best_fold_idx+1}"
             )
-            
-            # Validate the ONNX models
             if onnx_path:
                 validate_onnx_model(best_model, onnx_path, sample_input)
             if quantized_onnx_path:
-                validate_onnx_model(best_model, quantized_onnx_path, sample_input, tolerance=1e-3)  # Higher tolerance for quantized model
-                
-            print(f"✓ Best model from fold {best_fold_idx+1} exported to ONNX format")
+                validate_onnx_model(best_model, quantized_onnx_path, sample_input, tolerance=1e-3)
+            print(f"Best model from fold {best_fold_idx+1} exported to ONNX format")
         else:
             print(f"Warning: Best model file not found at {best_fold_model_path}")
-    
     return mean_f1 if return_f1 else None
-
 
 if __name__ == "__main__":
     train_model()

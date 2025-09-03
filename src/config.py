@@ -66,7 +66,7 @@ NUM_CLASSES = len(CLASS_NAMES)
 # =============================================================================
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 16
-MAX_EPOCHS = 50
+MAX_EPOCHS = 30
 LEARNING_RATE = 2e-5
 RANDOM_SEED = 42
 EARLY_STOPPING_PATIENCE = 10

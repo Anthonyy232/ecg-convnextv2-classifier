@@ -25,7 +25,7 @@ def objective(trial: optuna.trial.Trial) -> float:
         The validation F1-score achieved in the trial.
     """
     hyperparams = {
-        'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
+        'learning_rate': trial.suggest_float('learning_rate', 1e-5, 5e-3, log=True),  # Reduced upper bound to prevent NaN
         'batch_size': trial.suggest_categorical('batch_size', [8, 16, 32, 64]),
         'focal_gamma': trial.suggest_float('focal_gamma', 1.0, 3.5),
         'epochs': HPO_MAX_EPOCHS
@@ -38,6 +38,12 @@ def objective(trial: optuna.trial.Trial) -> float:
 
     try:
         f1_score = train_model(hyperparams=hyperparams, return_f1=True, trial_num=trial.number)
+        
+        # Handle NaN or very low scores from failed trials
+        if f1_score is None or f1_score != f1_score or f1_score < 0.05:  # f1_score != f1_score checks for NaN
+            print(f"\n--- HPO Trial {trial.number} Failed (F1: {f1_score}) ---")
+            return 0.0
+            
         print(f"\n--- HPO Trial {trial.number} Finished. Score (Mean F1): {f1_score:.4f} ---")
         return f1_score
     except Exception as e:
