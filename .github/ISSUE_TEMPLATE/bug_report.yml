@@ -1,0 +1,19 @@
+name: Bug report
+description: Something in the pipeline doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran, what you expected and what happened instead, with the error output.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Python and PyTorch versions, CPU or GPU.
+      placeholder: Ubuntu 24.04, Python 3.12, PyTorch 2.5, CUDA
+    validations:
+      required: true
