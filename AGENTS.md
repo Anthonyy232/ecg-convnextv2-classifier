@@ -47,6 +47,7 @@ A PyTorch learning project that classifies arrhythmia in MIT-BIH ECG windows fro
 - README is for users: what it does, how to get it, how to use it. No internals, no agent instructions.
 - This file is for agents: only what can't be found quickly in the code.
 - No meta docs in the repo (notes, audits, plans, reports).
+- The README pipeline figure is built from the `media` branch; its README has the steps.
 
 ## Git
 
