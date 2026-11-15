@@ -3,7 +3,7 @@ Integrated training pipeline for the ECG classification model.
 
 This module handles the end-to-end training process, including data loading,
 class imbalance handling with SMOTE, model instantiation, training loop,
-evaluation, and support for both cross-validation and standard train/validation splits.
+evaluation, and patient-wise cross-validation.
 """
 
 import os
@@ -32,7 +32,6 @@ from config import *
 from dataset import ECGDataset
 from model import create_ecg_model
 from loss import FocalLoss
-from data_loader import load_rare_aware_cached, load_rare_disease_split
 from preprocess import create_segmented_windows
 
 
@@ -67,37 +66,20 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = True
 
 
-def load_data(data_dir: str, use_cv: bool = False):
-    """
-    Loads data, either for cross-validation or a standard split.
-
-    Args:
-        data_dir: Directory for caching data.
-        use_cv: If True, loads data patient-by-patient for CV. Otherwise,
-                uses the rare-disease-aware split.
-
-    Returns:
-        If use_cv is True, a dictionary mapping patient IDs to their data.
-        Otherwise, a tuple (X_train, y_train, X_val, y_val).
-    """
-    if use_cv:
-        print("Loading patient data for cross-validation...")
-        patient_data = {}
-        # Using tqdm to show progress for data loading
-        for patient_id in tqdm(TRAINING_PATIENTS, desc="Loading Patients"):
-            cache_path = os.path.join(data_dir, f"patient_{patient_id}.npz")
-            if os.path.exists(cache_path):
-                with np.load(cache_path) as data:
-                    X, y = data['x'], data['y']
-            else:
-                X, y = create_segmented_windows([patient_id])
-                np.savez_compressed(cache_path, x=X, y=y)
-            patient_data[patient_id] = (X, y)
-        return patient_data
-    else:
-        print("Loading rare-disease-aware data split...")
-        cached = load_rare_aware_cached(data_dir)
-        return cached if cached else load_rare_disease_split(data_dir)
+def load_data(data_dir: str) -> dict:
+    """Loads each training patient's windows, caching them in data_dir. Returns {patient_id: (X, y)}."""
+    print("Loading patient data for cross-validation...")
+    patient_data = {}
+    for patient_id in tqdm(TRAINING_PATIENTS, desc="Loading Patients"):
+        cache_path = os.path.join(data_dir, f"patient_{patient_id}.npz")
+        if os.path.exists(cache_path):
+            with np.load(cache_path) as data:
+                X, y = data['x'], data['y']
+        else:
+            X, y = create_segmented_windows([patient_id])
+            np.savez_compressed(cache_path, x=X, y=y)
+        patient_data[patient_id] = (X, y)
+    return patient_data
 
 
 def apply_smote(X_train: np.ndarray, y_train: np.ndarray) -> tuple:
@@ -361,7 +343,7 @@ def train_model(hyperparams=None, return_f1=False, trial_num=None):
     
     log_prefix = f"[Trial {trial_num}] " if trial_num is not None else ""
     device = torch.device(DEVICE)
-    patient_data = load_data(DATA_DIRECTORY, use_cv=True)
+    patient_data = load_data(DATA_DIRECTORY)
     patients = list(patient_data.keys())
     kf = KFold(n_splits=CROSS_VALIDATION_FOLDS, shuffle=True, random_state=RANDOM_SEED)
     fold_scores = []

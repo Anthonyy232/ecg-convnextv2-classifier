@@ -35,14 +35,6 @@ TESTING_PATIENTS = [
     '233', '234'
 ]
 
-# Patient splits designed for rare disease handling.
-CORE_TRAINING_PATIENTS = [
-    '101', '106', '108', '109', '112', '114', '115', '116', '118', '119',
-    '122', '201', '203', '205', '209', '215', '220', '230'
-]
-RARE_CLASS_PATIENTS = ['207', '208']  # Patients known to contain rare classes.
-STANDARD_VALIDATION_PATIENTS = ['124', '223']
-
 # =============================================================================
 # Signal Processing Parameters
 # =============================================================================
@@ -71,7 +63,6 @@ LEARNING_RATE = 2e-5
 RANDOM_SEED = 42
 EARLY_STOPPING_PATIENCE = 10
 GRADIENT_CLIP_NORM = 0.5
-USE_CROSS_VALIDATION = True
 CROSS_VALIDATION_FOLDS = 4
 
 # Hyperparameter Optimization (HPO) settings.
