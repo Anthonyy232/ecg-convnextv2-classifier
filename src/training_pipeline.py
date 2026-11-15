@@ -8,6 +8,7 @@ evaluation, and patient-wise cross-validation.
 
 import os
 import random
+import shutil
 import warnings
 import numpy as np
 import torch
@@ -425,6 +426,7 @@ def train_model(hyperparams=None, return_f1=False, trial_num=None):
         best_fold_idx = np.argmax(fold_scores)
         best_fold_model_path = os.path.join(MODELS_DIRECTORY, f'best_model_fold_{best_fold_idx+1}.pth')
         if os.path.exists(best_fold_model_path):
+            shutil.copyfile(best_fold_model_path, BEST_MODEL_PATH)
             best_model = create_ecg_model(NUM_CLASSES).to(device)
             checkpoint = torch.load(best_fold_model_path, map_location=device)
             best_model.load_state_dict(checkpoint['model_state_dict'])
