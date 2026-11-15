@@ -1,119 +1,76 @@
-# ECG Arrhythmia Detection
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/pipeline-dark.png">
+  <img src=".github/readme/pipeline-light.png" alt="From heartbeat to class. 01: clean the signal (MLII lead resampled from 360 to 100 Hz, 30 Hz low-pass, baseline removed, 10 second windows). 02: S-Transform from 0 to 40 Hz, real and imaginary parts as a 2 × 41 × 1000 input. 03: ConvNeXt V2 with 2, 2, 6 and 2 blocks per stage. 04: classify into the AAMI classes N, S, V, F and Q.">
+</picture>
 
-This project is a system for detecting arrhythmia in ECG signals. It uses a deep learning model to classify heartbeats from time-frequency representations of ECG data. The system includes a full training pipeline.
+# ECG ConvNeXt V2 classifier
 
-> **Disclaimer**
-> This project is for learning purposes and not for professional usage as the accuracy and macro F1 score is subpar.
+A learning project that classifies arrhythmia in single-lead ECG with a ConvNeXt V2 network in PyTorch. Each 10-second window of the MIT-BIH Arrhythmia Database is turned into a time-frequency image with the Stockwell transform (S-Transform) and labelled with one of the five AAMI classes. The best model is exported to ONNX, full precision and quantized.
 
-## How It Works
+> [!WARNING]
+> This is not a medical device and must not be used for diagnosis. Its accuracy and macro F1 score are too low for any professional use.
 
-1.  **Preprocessing**: Raw ECG signals (from the MIT-BIH database) are filtered, resampled, and segmented into 10-second windows.
-2.  **Feature Extraction**: Each window is converted into a 2D time-frequency image using the Stockwell Transform (S-Transform).
-3.  **Classification**: A ConvNeXt v2 model classifies the data into different arrhythmia types.
-4.  **Training**: The model is trained using techniques like Focal Loss and SMOTE to attempt to improve the natural class imbalance found in ECG data.
-5.  **ONNX Export**: After training, the best model is automatically exported to both standard and quantized ONNX formats for optimized inference and deployment.
+The figure's ECG trace is synthetic, and its S-Transform panel is the repository's transform applied to that trace.
 
-## Technology Stack
+## How it works
 
-*   **ML**: Python, PyTorch, Optuna, NumPy, SciPy, scikit-learn
-*   **Data**: `wfdb` for the MIT-BIH Arrhythmia Database
+1. **Signal.** Records are read from PhysioNet with `wfdb`, using the first channel (MLII in nearly every record). The signal is resampled from 360 to 100 Hz, low-pass filtered at 30 Hz and detrended, then cut into back-to-back 10-second windows of 1,000 samples, each scaled to 0 to 1.
+2. **Label.** Each beat annotation is mapped to an AAMI class (N, S, V, F, Q) and a window takes the most frequent class among its beats. It classifies windows, not single beats.
+3. **S-Transform.** Each window becomes a 41 × 1,000 complex matrix for 0 to 40 Hz. Its real and imaginary parts are the two input channels.
+4. **Model.** A ConvNeXt V2 backbone (2, 2, 6 and 2 blocks; 64 to 512 channels) adapted to this input: a non-square stem, and each block's 7 × 7 depthwise convolution replaced by a 3 × 1 frequency convolution and a 1 × 15 time convolution. The frequency axis is pooled, a small temporal attention weights the time steps, and a linear head gives the five classes. It is trained from scratch; no pretrained weights are used.
+5. **Training.** The 22 training records are split by patient into 4 folds. Each fold oversamples the minority classes with SMOTE and trains with class-weighted focal loss, AdamW, mixed precision and early stopping on validation macro F1.
+6. **Export.** The best fold is saved as `models/best_model.pth` and exported to ONNX and to a dynamically quantized 8-bit ONNX model, both checked with ONNX Runtime against the PyTorch output.
 
-## Project Structure
+Records follow the usual inter-patient split of MIT-BIH: 22 for training and cross-validation, 22 held out for evaluation. The four paced records are not used.
 
-```
-ecg/
-├── README.md                    # This file
-├── requirements.txt             # Python dependencies
-├── ecg_cli.py                  # Command-line interface
-├── system_verification.py      # Installation and system tests
-├── data/                       # ECG patient data (NPZ format)
-│   ├── patient_101.npz
-│   └── ...
-├── src/                        # Core ML implementation
-│   ├── config.py               # Configuration and parameters
-│   ├── model.py                # ConvNeXt v2 model architecture
-│   ├── training_pipeline.py    # Training and evaluation pipeline
-│   ├── signal_processing.py    # S-Transform and feature extraction
-│   └── ...
-├── models/                     # Trained model storage
-│   ├── best_model_fold_X.pth  # PyTorch model checkpoints
-│   ├── best_ecg_model_fold_X.onnx         # Standard ONNX models
-│   └── best_ecg_model_fold_X_quantized.onnx  # Quantized ONNX models
-└── results/                    # Training results and HPO studies
-```
+## Results
 
-## Installation and Setup
+The repository doesn't include trained models, logs or scores. Run training and evaluation to produce your own: evaluation prints a per-class report and saves it with a confusion matrix in `results/`.
 
-### Prerequisites
+## Run it
 
-*   Python 3.8+
-*   Node.js 14+ (for frontend)
-*   Git
-
-### Backend Setup
-
-1.  **Clone the repository**:
-    ```bash
-    git clone <repository-url>
-    cd ecg
-    ```
-
-2.  **Install Python dependencies**:
-    ```bash
-    python -m pip install -r requirements.txt
-    ```
-
-3.  **Verify installation**:
-    ```bash
-    python ecg_cli.py test
-    ```
-
-## Usage
-
-The project is managed through a command-line interface.
+You need Python 3 and an internet connection on the first run, when the records are downloaded from PhysioNet. A CUDA GPU is used when available; training on the CPU is slow.
 
 ```bash
-# Install dependencies and download data
-python ecg_cli.py install
-
-# Run system verification tests
-python ecg_cli.py test
-
-# Train the model using cross-validation
-python ecg_cli.py train
-
-# Run hyperparameter optimization
-python ecg_cli.py hpo
-
-# Evaluate the best trained model
-python ecg_cli.py eval
+git clone https://github.com/Anthonyy232/ecg-convnextv2-classifier.git
+cd ecg-convnextv2-classifier
+python ecg_cli.py install   # pip install -r requirements.txt
+python ecg_cli.py test      # S-Transform shape and a model forward pass on random data
+python ecg_cli.py hpo       # optional: Optuna search over learning rate, batch size and focal gamma
+python ecg_cli.py train     # 4-fold cross-validation, checkpoints and ONNX export
+python ecg_cli.py eval      # report on the 22 held-out records
 ```
 
-### ONNX Model Export
+If an HPO study exists, `train` asks whether to use its best hyperparameters. HPO runs 10 trials of a shorter cross-validation and can be stopped and resumed.
 
-After training completes, the system automatically exports the best-performing model to ONNX format:
+Defaults such as epochs, batch size, learning rate and the patient lists are in `src/config.py`.
 
-- **Standard ONNX** (`best_ecg_model_fold_X.onnx`): Full precision model for maximum accuracy
+| Folder | Contents |
+| --- | --- |
+| `data/` | Preprocessed windows cached per record (`.npz`) |
+| `models/` | `best_model_fold_N.pth`, `best_model.pth`, `best_ecg_model_fold_N.onnx` and `best_ecg_model_fold_N_quantized.onnx` |
+| `results/` | The HPO study, evaluation report and confusion matrix |
 
-- **Quantized ONNX** (`best_ecg_model_fold_X_quantized.onnx`): INT8 quantized model for optimized inference
+These folders are created on first use and ignored by Git. Data derived from MIT-BIH is not redistributed here.
 
-## Acknowledgements and Citations
+## Data, code and references
 
-The architecture and methods used in this project are inspired by recent academic research in ECG classification.
+**MIT-BIH Arrhythmia Database** ([PhysioNet](https://physionet.org/content/mitdb/1.0.0/), [doi:10.13026/C2F305](https://doi.org/10.13026/C2F305)), licensed under the Open Data Commons Attribution License v1.0. It is downloaded at run time and not stored in this repository. Please cite:
 
+> Moody GB, Mark RG. The impact of the MIT-BIH Arrhythmia Database. *IEEE Eng in Med and Biol* 20(3):45-50 (May-June 2001). (PMID: 11446209)
+
+> Goldberger, A., Amaral, L., Glass, L., Hausdorff, J., Ivanov, P. C., Mark, R., ... & Stanley, H. E. (2000). PhysioBank, PhysioToolkit, and PhysioNet: Components of a new research resource for complex physiologic signals. *Circulation [Online]*. 101 (23), pp. e215–e220.
+
+**ConvNeXt V2.** The layers in `src/model.py` are adapted from [facebookresearch/ConvNeXt-V2](https://github.com/facebookresearch/ConvNeXt-V2) (MIT; its notice is kept in that file). That project's pretrained ImageNet weights are CC-BY-NC and are not used here.
+
+> Woo, S., Debnath, S., Hu, R., Chen, X., Liu, Z., Kweon, I. S., Xie, S. ConvNeXt V2: Co-designing and Scaling ConvNets with Masked Autoencoders. *CVPR* (2023). [arXiv:2301.00808](https://arxiv.org/abs/2301.00808)
+
+The approach was inspired by:
 
 > Talukder, M.A., Khalid, M., Kazi, M. et al. A hybrid cardiovascular arrhythmia disease detection using ConvNeXt-X models on electrocardiogram signals. *Sci Rep* **14**, 30366 (2024). [https://doi.org/10.1038/s41598-024-81992-w](https://doi.org/10.1038/s41598-024-81992-w)
 
 > El-Ghaish, H., Eldele, E. ECGTransForm: Empowering adaptive ECG arrhythmia classification framework with bidirectional transformer. *Biomedical Signal Processing and Control*, Volume 89, 105714 (2024). [https://doi.org/10.1016/j.bspc.2023.105714](https://doi.org/10.1016/j.bspc.2023.105714)
 
-**3. Dataset**
+## Licence
 
-This project uses the **MIT-BIH Arrhythmia Database**, made available by PhysioNet.
-
-*   **DOI:** [https://doi.org/10.13026/C2F305](https://doi.org/10.13026/C2F305)
-
-*   **For the Database:**
-    > Moody GB, Mark RG. The impact of the MIT-BIH Arrhythmia Database. *IEEE Eng in Med and Biol* 20(3):45-50 (May-June 2001). (PMID: 11446209)
-
-*   **For PhysioNet:**
-    > Goldberger, A., Amaral, L., Glass, L., Hausdorff, J., Ivanov, P. C., Mark, R., ... & Stanley, H. E. (2000). PhysioBank, PhysioToolkit, and PhysioNet: Components of a new research resource for complex physiologic signals. *Circulation [Online]*. 101 (23), pp. e215–e220.
+Copyright (C) 2025 Anthony La. Licensed under the [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`). Earlier versions were published without a licence. Third-party code keeps its own licence, as noted above.
