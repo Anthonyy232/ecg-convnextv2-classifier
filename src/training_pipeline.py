@@ -396,7 +396,7 @@ def train_model(hyperparams=None, return_f1=False, trial_num=None):
             if val_f1 > best_f1:
                 best_f1 = val_f1
                 patience = 0
-                if not hp: # Only save the best model during a full training run
+                if not return_f1:
                     os.makedirs(MODELS_DIRECTORY, exist_ok=True)
                     torch.save({
                         'model_state_dict': model.state_dict(),
@@ -418,7 +418,7 @@ def train_model(hyperparams=None, return_f1=False, trial_num=None):
     print(f"Mean F1 Score: {mean_f1:.4f} ± {std_f1:.4f}")
     print("="*50)
     # Export the best model to quantized ONNX format
-    if not hp:  # Only during full training runs (not HPO)
+    if not return_f1:
         print("\n" + "="*50)
         print("Exporting to Quantized ONNX")
         print("="*50)
