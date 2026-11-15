@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "node readme/build.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.65.1"
+  }
+}
