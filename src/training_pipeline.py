@@ -69,6 +69,7 @@ def set_seed(seed: int):
 def load_data(data_dir: str) -> dict:
     """Loads each training patient's windows, caching them in data_dir. Returns {patient_id: (X, y)}."""
     print("Loading patient data for cross-validation...")
+    os.makedirs(data_dir, exist_ok=True)
     patient_data = {}
     for patient_id in tqdm(TRAINING_PATIENTS, desc="Loading Patients"):
         cache_path = os.path.join(data_dir, f"patient_{patient_id}.npz")
