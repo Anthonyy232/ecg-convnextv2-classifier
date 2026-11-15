@@ -77,12 +77,12 @@ def main():
     
     # Generate and display results.
     report = classification_report(
-        targets, predictions, target_names=CLASS_NAMES, digits=4, zero_division=0
+        targets, predictions, labels=range(NUM_CLASSES), target_names=CLASS_NAMES, digits=4, zero_division=0
     )
     print("\nEVALUATION RESULTS\n" + "="*60)
     print(report)
     
-    cm = confusion_matrix(targets, predictions)
+    cm = confusion_matrix(targets, predictions, labels=range(NUM_CLASSES))
     os.makedirs(RESULTS_DIRECTORY, exist_ok=True)
     plot_confusion_matrix(cm, CLASS_NAMES, save_path=os.path.join(RESULTS_DIRECTORY, "confusion_matrix.png"))
     
