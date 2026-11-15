@@ -1,14 +1,9 @@
 torch
-torchvision
-torchaudio
 numpy
-pandas
 scipy
 scikit-learn
-imblearn
+imbalanced-learn
 wfdb
-torch_optimizer
-pytest
 matplotlib
 seaborn
 tqdm
