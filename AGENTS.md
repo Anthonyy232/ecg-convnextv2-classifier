@@ -26,12 +26,12 @@ A PyTorch learning project that classifies arrhythmia in MIT-BIH ECG windows fro
 - Deterministic: fake time and observable events, no sleeps.
 - A failing test is a bug until shown otherwise.
 
-## Project
+## ECG ConvNeXt V2 classifier
 
-- Scripts in `src/` import each other as top-level modules and run with `src/` as the working directory; the CLI handles that.
 - Cached windows in `data/` go stale when preprocessing or `src/config.py` changes: delete them before retraining.
 - Keep the patient-wise split: windows from one record never appear in both training and validation, and the held-out records are never trained on.
 - No dataset files, derived data, checkpoints or ONNX models in Git. MIT-BIH is downloaded at run time.
+- Not actively developed: no scheduled dependency updates, security fixes only.
 - Results quoted in the README must come from a run whose output is committed or linked.
 - `src/model.py` adapts MIT-licensed ConvNeXt V2 code: keep its notice. Don't add the CC-BY-NC pretrained weights.
 
@@ -47,7 +47,7 @@ A PyTorch learning project that classifies arrhythmia in MIT-BIH ECG windows fro
 - README is for users: what it does, how to get it, how to use it. No internals, no agent instructions.
 - This file is for agents: only what can't be found quickly in the code.
 - No meta docs in the repo (notes, audits, plans, reports).
-- The README pipeline figure is built from the `media` branch; its README has the steps.
+- Generated images are built from the orphan `media` branch; its README has the steps.
 
 ## Git
 
@@ -64,9 +64,7 @@ A PyTorch learning project that classifies arrhythmia in MIT-BIH ECG windows fro
 
 ## Releases
 
-- None so far. If one is made: bump commit `chore: release vX.Y.Z`; tag `vX.Y.Z`; title `ECG ConvNeXt V2 classifier X.Y.Z`.
-- Notes: banner image first, then `### New`, `### Improved`, `### Fixed` (only those that apply). One line per change, written for users; no internals, dependency lists or test counts. End with the full changelog link.
-- Banner: generated and hosted on an orphan `media` branch.
+- None: nothing is published.
 
 ## Agents
 
